@@ -9,7 +9,7 @@ import FileList from '../components/FileList.vue';
 import Clean from '../components/Prepro/Clean.vue';
 import DataSearch from '../components/Prepro/DataSearch.vue'; // Make sure to import DataSearch
 import FillData from '../components/Prepro/FillData.vue'
-
+import FileUpload from '../components/FileUpload.vue'
 Vue.use(VueRouter);
 
 const routes = [
@@ -29,7 +29,8 @@ const routes = [
       { path: 'FileList', name: 'FileList', component: FileList },
       { path: 'Clean', name: 'Clean', component: Clean },
       { path: 'DataSearch', name: 'DataSearch', component: DataSearch },
-      { path: 'FillData', name: 'FillData', component: FillData } // Correct the component reference here
+      { path: 'FillData', name: 'FillData', component: FillData },
+      { path: 'FileUpload',name: 'FileUpload',component: FileUpload}// Correct the component reference here
     ]
   }
 ];

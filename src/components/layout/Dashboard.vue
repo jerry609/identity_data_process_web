@@ -52,6 +52,7 @@
             <el-menu-item index="3-1-1" @click="navigateTo('CustomGraph')"><i class="el-icon-graph"></i>
               选项1</el-menu-item>
             <el-menu-item index="3-1-2" @click="navigateTo('demo')"><i class="el-icon-document"></i> 选项2</el-menu-item>
+            <el-menu-item index="3-1-3" @click="navigateTo('FileUpload')"><i class="el-icon-document"></i> 文件上传</el-menu-item>
           </el-submenu>
         </el-submenu>
       </el-menu>

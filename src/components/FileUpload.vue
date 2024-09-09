@@ -40,7 +40,8 @@
       </el-row>
 
       <el-form-item label="表注释">
-        <el-input v-model="formData.tableComment" type="textarea" :rows="2" placeholder="描述表的中文名称、作用等"></el-input>
+        <el-input v-model="formData.tableComment" type="textarea" :rows="2"
+                  placeholder="描述表的中文名称、作用等"></el-input>
       </el-form-item>
 
       <el-form-item label="生成条数" required>
@@ -78,18 +79,30 @@
       <el-form-item>
         <el-button type="primary" icon="el-icon-plus" @click="addNewField">新增字段</el-button>
         <el-button icon="el-icon-plus" @click="addCommonFields">新增通用字段</el-button>
-<!--        <el-button type="info" icon="el-icon-view" @click="previewTable">预览表格</el-button>-->
+        <!--        <el-button type="info" icon="el-icon-view" @click="previewTable">预览表格</el-button>-->
       </el-form-item>
 
 
       <el-divider></el-divider>
-
       <el-form-item>
-          <el-button type="primary" icon="el-icon-check" @click="generateSQL">生成SQL</el-button>
-          <el-button type="success" icon="el-icon-upload" @click="executeSQL" :disabled="!sqlGenerated">执行SQL</el-button>
-          <el-button type="warning" icon="el-icon-data-analysis" @click="generateMockData" :disabled="!tableCreated">生成模拟数据</el-button>
-          <el-button type="success" icon="el-icon-document-copy" @click="copyConfig">复制配置</el-button>
-          <el-button icon="el-icon-refresh" @click="resetForm">重置</el-button>
+        <!-- 生成并执行SQL -->
+        <el-button type="primary" icon="el-icon-s-operation" @click="generateAndExecuteSQL">生成并执行SQL</el-button>
+
+        <!-- 生成模拟数据 -->
+        <el-button type="warning" icon="el-icon-s-data" @click="generateAndExecuteMockData" :disabled="!tableCreated">
+          生成模拟数据
+        </el-button>
+
+        <!-- 导入文件数据 -->
+        <el-button type="warning" icon="el-icon-upload" @click="importFileData" :disabled="!tableCreated">
+          导入文件数据
+        </el-button>
+
+        <!-- 复制配置 -->
+        <el-button type="success" icon="el-icon-document" @click="copyConfig">复制配置</el-button>
+
+        <!-- 重置 -->
+        <el-button icon="el-icon-refresh-left" @click="resetForm">重置</el-button>
       </el-form-item>
     </el-form>
 
@@ -118,32 +131,41 @@
         </el-table-column>
       </el-table>
     </el-dialog>
+    <el-dialog title="生成的 SQL" :visible.sync="sqlDialogVisible" width="80%">
+      <el-input
+          type="textarea"
+          :rows="15"
+          v-model="sqlResult"
+          :autosize="{ minRows: 10, maxRows: 30 }"
+      ></el-input>
+      <span slot="footer" class="dialog-footer">
+    <el-button @click="sqlDialogVisible = false">关闭</el-button>
+    <el-button type="primary" @click="copySqlResult">复制 SQL</el-button>
+    <el-button type="success" @click="executeSQL">执行 SQL</el-button>
+  </span>
+    </el-dialog>
+<!--    <el-dialog title="选择要导入的字段" :visible.sync="fieldSelectionDialogVisible">-->
+<!--      <el-checkbox-group v-model="selectedFields">-->
+<!--        <el-checkbox v-for="field in csvColumns" :key="field" :label="field">-->
+<!--          {{ field }}-->
+<!--        </el-checkbox>-->
+<!--      </el-checkbox-group>-->
+<!--      <span slot="footer" class="dialog-footer">-->
+<!--    <el-button @click="fieldSelectionDialogVisible = false">取消</el-button>-->
+<!--    <el-button type="primary" @click="confirmFieldSelection">确定</el-button>-->
+<!--  </span>-->
+<!--    </el-dialog>-->
 
-    <!-- Field Selection Dialog -->
-    <el-dialog title="选择要上传的字段" :visible.sync="fieldSelectionDialogVisible" width="50%">
+    <el-dialog title="选择要导入的字段" :visible.sync="fieldSelectionDialogVisible">
       <el-checkbox-group v-model="selectedFields">
-        <el-checkbox v-for="field in formData.fields" :key="field.name" :label="field.name">
-          {{ field.name }}
+        <el-checkbox v-for="field in csvColumns" :key="field" :label="field">
+          {{ field }}
         </el-checkbox>
       </el-checkbox-group>
       <span slot="footer" class="dialog-footer">
-        <el-button @click="fieldSelectionDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="uploadSelectedData">上传选中数据</el-button>
-      </span>
-    </el-dialog>
-
-    <!-- SQL Result Dialog -->
-    <el-dialog title="生成的 SQL" :visible.sync="sqlDialogVisible" width="50%">
-      <el-input
-          type="textarea"
-          :rows="10"
-          v-model="sqlResult"
-          readonly
-      ></el-input>
-      <span slot="footer" class="dialog-footer">
-        <el-button @click="sqlDialogVisible = false">关闭</el-button>
-        <el-button type="primary" @click="copySqlResult">复制 SQL</el-button>
-      </span>
+    <el-button @click="fieldSelectionDialogVisible = false">取消</el-button>
+    <el-button type="primary" @click="confirmFieldSelection">确定</el-button>
+  </span>
     </el-dialog>
   </el-card>
 </template>
@@ -175,32 +197,225 @@ export default {
       selectedFields: [],
       tableCreated: false,
       sqlGenerated: false,
+      fileName: '',
+      // 新增：用于存储上传文件的名称
     };
   },
   methods: {
 
-    generateSQL() {
-      const createTableSQL = this.generateCreateTableSQL();
-      this.sqlResult = createTableSQL;
-      this.sqlDialogVisible = true;
-      this.sqlGenerated = true;
+    uploadSelectedData() {
+      // 实现上传选中数据的逻辑
+      console.log('Uploading selected data:', this.selectedFields);
+      // 这里可以添加实际的上传逻辑,比如发送 API 请求等
+
+      // 上传完成后关闭对话框
+      this.fieldSelectionDialogVisible = false;
+
+      // 可以添加成功提示
+      this.$message.success('数据上传成功');
     },
 
-    async executeSQL() {
-      if (!this.sqlGenerated) {
-        this.$message.warning('请先生成SQL');
+    async generateAndExecuteSQL() {
+      try {
+        const createTableSQL = this.generateCreateTableSQL();
+        this.sqlResult = createTableSQL; // 将生成的 SQL 赋值给 sqlResult
+        this.sqlDialogVisible = true; // 显示对话框
+        this.tableCreated = false; // 重置表创建状态
+      } catch (error) {
+        console.error('SQL生成错误:', error);
+        this.$message.error('SQL生成失败: ' + error.message);
+      }
+    },
+    async generateAndExecuteMockData() {
+      if (!this.tableCreated) {
+        this.$message.warning('请先创建表格');
+        return;
+      }
+      this.sqlResult = this.generateInsertSQL();
+      this.sqlDialogVisible = true;
+    },
+    async executeSql() {
+      try {
+        const response = await axios.post('/api/execute-sql', this.sqlResult);
+        this.$message.success(response.data);
+        this.tableCreated = true;
+        this.sqlDialogVisible = false;
+      } catch (error) {
+        this.$message.error('SQL执行失败: ' + (error.response?.data || error.message));
+      }
+    },
+
+    // 数据输入选择
+    handleFileUpload(file) {
+      if (file.raw.type !== 'text/csv') {
+        this.$message.error('请上传 CSV 文件');
         return;
       }
 
-      try {
-        await axios.post('/api/execute-sql', { sql: this.sqlResult });
-        this.$message.success('SQL执行成功，表格已创建');
-        this.tableCreated = true;
-      } catch (error) {
-        this.$message.error('SQL执行失败: ' + error.message);
+      // 保存文件名，去掉 .csv 扩展名
+      this.fileName = file.name.replace(/\.csv$/i, '');
+
+      Papa.parse(file.raw, {
+        complete: (results) => {
+          this.csvData = results.data;
+          this.csvColumns = Object.keys(this.csvData[0]);
+          this.$message.success('文件导入成功');
+          this.preprocessData();
+          // this.fieldSelectionDialogVisible = true; // 打开字段选择对话框
+        },
+        header: true
+
+      });
+    },
+
+    // 数据预处理
+    preprocessData() {
+      this.cleanData();
+      this.handleMissingValues();
+      this.convertDataTypes();
+      this.normalizeFieldNames();
+      this.updateFieldsFromCSV();
+      this.autoDetectTableName(); // 新增：自动检测表名
+    },
+
+    // 新增：自动检测表名方法
+    autoDetectTableName() {
+      // 使用文件名作为表名的基础
+      let tableName = this.fileName;
+
+      // 进行一些基本的清理和规范化
+      tableName = tableName.toLowerCase()
+          .replace(/\s+/g, '_')  // 将空格替换为下划线
+          .replace(/[^a-z0-9_]/g, '')  // 移除非字母数字下划线字符
+          .replace(/^[^a-z]+/, '');  // 确保表名以字母开头
+
+      // 如果处理后的表名为空，使用默认名称
+      if (!tableName) {
+        tableName = 'imported_table';
+      }
+
+      // 更新 formData 中的表名
+      this.formData.tableName = tableName;
+    },
+
+    cleanData() {
+      // 实现数据清洗逻辑
+      this.csvData = this.csvData.filter(row => Object.values(row).some(value => value !== ''));
+    },
+
+    handleMissingValues() {
+      // 处理缺失值
+      this.csvData = this.csvData.map(row => {
+        Object.keys(row).forEach(key => {
+          if (row[key] === '' || row[key] === undefined) {
+            row[key] = null;
+          }
+        });
+        return row;
+      });
+    },
+
+    convertDataTypes() {
+      // 数据类型转换
+      this.csvData = this.csvData.map(row => {
+        Object.keys(row).forEach(key => {
+          if (!isNaN(row[key])) {
+            row[key] = Number(row[key]);
+          } else if (row[key] === 'true' || row[key] === 'false') {
+            row[key] = row[key] === 'true';
+          }
+        });
+        return row;
+      });
+    },
+
+    normalizeFieldNames() {
+      // 字段名规范化
+      this.csvColumns = this.csvColumns.map(column =>
+          column.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+      );
+    },
+
+    updateFieldsFromCSV() {
+      this.formData.fields = this.csvColumns.map(column => ({
+        name: column,
+        type: this.guessFieldType(column, this.csvData),
+        length: 255,
+        comment: ''
+      }));
+    },
+    // 表格设计优化
+    optimizeTableDesign() {
+      this.checkFieldNamingConventions();
+      this.suggestIndexes();
+      this.setPrimaryKey();
+    },
+
+    checkFieldNamingConventions() {
+      // 实现字段命名规范检查
+      const invalidFields = this.formData.fields.filter(field =>
+          !field.name.match(/^[a-z][a-z0-9_]*$/)
+      );
+      if (invalidFields.length > 0) {
+        this.$message.warning(`以下字段名不符合命名规范: ${invalidFields.map(f => f.name).join(', ')}`);
       }
     },
 
+    suggestIndexes() {
+      // 实现索引建议逻辑
+      const potentialIndexFields = this.formData.fields.filter(field =>
+          field.type === 'INT' || field.name.endsWith('_id') || field.name === 'created_at'
+      );
+      if (potentialIndexFields.length > 0) {
+        this.$message.info(`建议为以下字段创建索引: ${potentialIndexFields.map(f => f.name).join(', ')}`);
+      }
+    },
+
+    setPrimaryKey() {
+      // 设置主键
+      if (!this.formData.fields.some(field => field.name === 'id')) {
+        this.formData.fields.unshift({
+          name: 'id',
+          type: 'INT',
+          comment: '主键ID',
+          isPrimaryKey: true
+        });
+        this.$message.info('已自动添加 id 字段作为主键');
+      }
+    },
+
+
+    generateCreateTableSQL() {
+      let sql = `CREATE TABLE IF NOT EXISTS \`${this.formData.tableName}\` (\n`;
+      this.formData.fields.forEach((field, index) => {
+        sql += `  \`${field.name}\` ${field.type}`;
+        if (field.type === 'VARCHAR') sql += `(${field.length})`;
+        if (field.isPrimaryKey) sql += ' PRIMARY KEY AUTO_INCREMENT';
+        if (index < this.formData.fields.length - 1) sql += ',';
+        sql += '\n';
+      });
+      sql += `) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='${this.formData.tableComment}';`;
+      return sql;
+    },
+
+    generateIndexSQL() {
+      // 生成索引 SQL
+      const indexFields = this.formData.fields.filter(field =>
+          field.type === 'INT' || field.name.endsWith('_id') || field.name === 'created_at'
+      );
+      return indexFields.map(field =>
+          `CREATE INDEX idx_${field.name} ON \`${this.formData.tableName}\` (\`${field.name}\`);`
+      ).join('\n');
+    },
+
+    generateCommentSQL() {
+      // 生成注释 SQL
+      return this.formData.fields.filter(field => field.comment).map(field =>
+          `ALTER TABLE \`${this.formData.tableName}\` MODIFY COLUMN \`${field.name}\` ${field.type} COMMENT '${field.comment}';`
+      ).join('\n');
+    },
+
+    // 模拟数据生成
     generateMockData() {
       if (!this.tableCreated) {
         this.$message.warning('请先创建表格');
@@ -210,19 +425,6 @@ export default {
       const insertDataSQL = this.generateInsertSQL();
       this.sqlResult = insertDataSQL;
       this.sqlDialogVisible = true;
-    },
-
-    generateCreateTableSQL() {
-      let sql = `CREATE TABLE IF NOT EXISTS \`${this.formData.tableName}\` (\n`;
-      this.formData.fields.forEach((field, index) => {
-        sql += `  \`${field.name}\` ${field.type}`;
-        if (field.type === 'VARCHAR') sql += `(${field.length})`;
-        if (field.comment) sql += ` COMMENT '${field.comment}'`;
-        if (index < this.formData.fields.length - 1) sql += ',';
-        sql += '\n';
-      });
-      sql += `) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='${this.formData.tableComment}';`;
-      return sql;
     },
 
     generateMockDataForField(field) {
@@ -241,6 +443,7 @@ export default {
           return 'NULL';
       }
     },
+
     generateInsertSQL() {
       const fieldNames = this.formData.fields.map(field => `\`${field.name}\``).join(', ');
       let insertSQL = `INSERT INTO \`${this.formData.tableName}\` (${fieldNames}) VALUES\n`;
@@ -258,6 +461,7 @@ export default {
       return insertSQL;
     },
 
+    // 其他辅助方法
     addNewField() {
       this.formData.fields.push({
         name: '',
@@ -266,26 +470,26 @@ export default {
         comment: ''
       });
     },
+
     removeField(index) {
       this.formData.fields.splice(index, 1);
     },
+
     addCommonFields() {
       const commonFields = [
-        { name: 'id', type: 'INT', comment: '主键ID' },
-        { name: 'created_at', type: 'DATETIME', comment: '创建时间' },
-        { name: 'updated_at', type: 'DATETIME', comment: '更新时间' }
+        {name: 'created_at', type: 'DATETIME', comment: '创建时间'},
+        {name: 'updated_at', type: 'DATETIME', comment: '更新时间'}
       ];
       this.formData.fields.push(...commonFields);
     },
-    saveTable() {
-      this.$message.success('表格配置已保存');
-    },
+
     copyConfig() {
       const config = JSON.stringify(this.formData, null, 2);
       navigator.clipboard.writeText(config).then(() => {
         this.$message.success('配置已复制到剪贴板');
       });
     },
+
     resetForm() {
       this.formData = {
         databaseName: '',
@@ -297,100 +501,17 @@ export default {
       this.csvData = [];
       this.csvColumns = [];
       this.tableCreated = false;
+      this.sqlGenerated = false;
     },
+
     copySqlResult() {
       navigator.clipboard.writeText(this.sqlResult).then(() => {
         this.$message.success('SQL 已复制到剪贴板');
       });
     },
-    handleFileUpload(file) {
-      if (file.raw.type !== 'text/csv') {
-        this.$message.error('请上传 CSV 文件');
-        return;
-      }
 
-      Papa.parse(file.raw, {
-        complete: (results) => {
-          this.csvData = results.data;
-          this.csvColumns = Object.keys(this.csvData[0]);
-          this.$message.success('文件导入成功');
-          this.updateFieldsFromCSV();
-        },
-        header: true
-      });
-    },
-    updateFieldsFromCSV() {
-      this.formData.fields = this.csvColumns.map(column => ({
-        name: column,
-        type: this.guessFieldType(column, this.csvData),
-        length: 255,
-        comment: ''
-      }));
-    },
     previewImportedData() {
       this.importedDataPreviewVisible = true;
-    },
-    async generateAndExecuteSQL() {
-      const createTableSQL = this.generateSQL();
-      this.sqlResult = createTableSQL;
-      this.sqlDialogVisible = true;
-      try {
-        // 假设有一个 API 端点来执行 SQL
-        await axios.post('/api/execute-sql', { sql: createTableSQL });
-        this.$message.success('表格创建成功');
-        this.tableCreated = true;
-      } catch (error) {
-        this.$message.error('表格创建失败: ' + error.message);
-      }
-    },
-    generateAll() {
-      const createTableSQL = this.generateSQL();
-      const insertDataSQL = this.generateInsertSQL();
-      this.sqlResult = createTableSQL + '\n\n' + insertDataSQL;
-      this.sqlDialogVisible = true;
-    },
-
-    async uploadSelectedData() {
-      if (this.selectedFields.length === 0) {
-        this.$message.warning('请至少选择一个字段');
-        return;
-      }
-
-      const dataToUpload = this.csvData.map(row => {
-        const filteredRow = {};
-        this.selectedFields.forEach(field => {
-          filteredRow[field] = row[field];
-        });
-        return filteredRow;
-      });
-
-      try {
-        // 假设有一个 API 端点来插入数据
-        await axios.post('/api/insert-data', {
-          tableName: this.formData.tableName,
-          data: dataToUpload
-        });
-        this.$message.success('数据上传成功');
-        this.fieldSelectionDialogVisible = false;
-      } catch (error) {
-        this.$message.error('数据上传失败: ' + error.message);
-      }
-    },
-    // previewTable() {
-    //   this.previewData = this.generatePreviewData();
-    //   this.tablePreviewDialogVisible = true;
-    // },
-    generatePreviewData() {
-      const previewRows = 5;
-      let data = [];
-      for (let i = 0; i < previewRows; i++) {
-        let row = {};
-        this.formData.fields.forEach(field => {
-          row[field.name] = this.generateMockData(field);
-        });
-        data.push(row);
-      }
-      return data;
     },
 
     generateRandomString(length) {
@@ -401,6 +522,7 @@ export default {
       }
       return result;
     },
+
     guessFieldType(columnName, data) {
       const sample = data[0][columnName];
       if (typeof sample === 'number') {
@@ -413,6 +535,115 @@ export default {
         return 'VARCHAR';
       }
     },
+
+
+    async importFileData() {
+      if (this.csvData.length === 0) {
+        this.$message.warning('请先导入CSV文件');
+        return;
+      }
+
+      if (!this.tableCreated) {
+        this.$message.warning('请先创建表格');
+        return;
+      }
+
+      // 打开字段选择对话框
+      this.fieldSelectionDialogVisible = true;
+    },
+
+    confirmFieldSelection() {
+      if (this.selectedFields.length === 0) {
+        this.$message.warning('请至少选择一个字段进行导入');
+        return;
+      }
+
+      // 验证选择的字段是否与表结构匹配
+      const invalidFields = this.selectedFields.filter(field =>
+          !this.formData.fields.some(tableField => tableField.name === field)
+      );
+
+      if (invalidFields.length > 0) {
+        this.$message.error(`以下字段与表结构不匹配: ${invalidFields.join(', ')}`);
+        return;
+      }
+
+      // 准备要发送的数据
+      const importData = {
+        tableName: this.formData.tableName,
+        selectedFields: this.selectedFields,
+        data: this.csvData.map(row =>
+            this.selectedFields.reduce((acc, field) => {
+              acc[field] = row[field];
+              return acc;
+            }, {})
+        )
+      };
+
+      // 发送数据到后端
+      this.sendImportDataToBackend(importData);
+    },
+
+    async sendImportDataToBackend(importData) {
+      console.log('Sending data to backend:', JSON.stringify(importData, null, 2));
+      try {
+        const response = await axios.post('/api/import-file-data', importData);
+        console.log('Response from backend:', response.data);
+        this.$message.success('文件数据导入成功');
+        this.fieldSelectionDialogVisible = false;
+      } catch (error) {
+        console.error('导入文件数据时出错:', error);
+        if (error.response) {
+          console.error('Error response:', error.response.data);
+        }
+        this.$message.error('导入文件数据失败: ' + (error.response?.data?.message || error.message));
+      }
+    },
+
+    generateInsertSQLFromCSV() {
+      const selectedFieldNames = this.selectedFields.map(field => `\`${field}\``).join(', ');
+      let insertSQL = `INSERT INTO \`${this.formData.tableName}\` (${selectedFieldNames}) VALUES\n`;
+
+      this.csvData.forEach((row, index) => {
+        const values = this.selectedFields.map(field => {
+          const value = row[field];
+          if (value === null || value === undefined) {
+            return 'NULL';
+          } else if (typeof value === 'string') {
+            return `'${value.replace(/'/g, "''")}'`; // 转义单引号
+          } else {
+            return value;
+          }
+        });
+
+        insertSQL += `(${values.join(', ')})`;
+        if (index < this.csvData.length - 1) {
+          insertSQL += ',\n';
+        } else {
+          insertSQL += ';';
+        }
+      });
+
+      return insertSQL;
+    },
+
+    async executeSQL() {
+      try {
+        const response = await axios.post('/api/execute-sql', this.sqlResult, {
+          headers: {
+            'Content-Type': 'text/plain'
+          }
+        });
+        this.$message.success(response.data);
+        this.tableCreated = true;
+        this.sqlDialogVisible = false;
+        this.fieldSelectionDialogVisible = false;
+      } catch (error) {
+        console.error('SQL执行错误:', error);
+        const errorMessage = error.response?.data || error.message || '未知错误';
+        this.$message.error('SQL执行失败: ' + errorMessage);
+      }
+    },
   }
 };
 </script>
@@ -422,12 +653,15 @@ export default {
   max-width: 1000px;
   margin: 20px auto;
 }
+
 .import-buttons {
   margin-bottom: 20px;
 }
+
 .field-item {
   margin-bottom: 15px;
 }
+
 .el-divider {
   margin: 20px 0;
 }

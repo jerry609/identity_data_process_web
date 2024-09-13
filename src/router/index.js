@@ -10,6 +10,8 @@ import Clean from '../components/Prepro/Clean.vue';
 import DataSearch from '../components/Prepro/DataSearch.vue'; // Make sure to import DataSearch
 import FillData from '../components/Prepro/FillData.vue'
 import FileUpload from '../components/FileUpload.vue'
+import UserFind from '../components/UserFind.vue';
+import NetworkGraph from '../components/NetworkGraph.vue';
 Vue.use(VueRouter);
 
 const routes = [
@@ -30,7 +32,9 @@ const routes = [
       { path: 'Clean', name: 'Clean', component: Clean },
       { path: 'DataSearch', name: 'DataSearch', component: DataSearch },
       { path: 'FillData', name: 'FillData', component: FillData },
-      { path: 'FileUpload',name: 'FileUpload',component: FileUpload}// Correct the component reference here
+      { path: 'FileUpload',name: 'FileUpload',component: FileUpload},
+      { path: 'UserFind',name: 'UserFind',component: UserFind},// Correct the component reference here
+      { path: 'NetworkGraph',name: 'NetworkGraph',component: NetworkGraph},
     ]
   }
 ];

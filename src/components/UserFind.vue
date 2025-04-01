@@ -116,7 +116,8 @@
 </template>
 
 <script>
-import axios from 'axios';
+// import axios from 'axios'; // 移除 axios 导入
+import { get } from '../services/api'; // 导入我们的 API 服务
 import 'echarts/lib/chart/bar';
 import 'echarts/lib/chart/scatter';
 import 'echarts/lib/chart/pie';
@@ -305,22 +306,34 @@ export default {
   methods: {
     async fetchData() {
       try {
-        let url = '/api/anomalous-users';
+        let endpoint = '/api/anomalous-users';
+        let params = {};
+        
         if (this.selectedDepartment) {
-          url += `/by-department?department=${encodeURIComponent(this.selectedDepartment)}`;
+          params.department = this.selectedDepartment;
         }
-        const response = await axios.get(url);
-        this.anomalousUsers = response.data;
+
+        // 使用我们的 API 服务
+        const data = await get(endpoint, params);
+        this.anomalousUsers = data;
       } catch (error) {
-        console.error('Error fetching data:', error);
+        console.error('获取数据时出错:', error);
+        // 添加回退数据
+        if (!this.anomalousUsers.length) {
+          this.anomalousUsers = [];  // 或提供示例数据
+        }
       }
     },
+
     async fetchDepartments() {
       try {
-        const response = await axios.get('/api/anomalous-users/departments');
-        this.departments = response.data;
+        // 使用我们的 API 服务
+        const data = await get('/api/anomalous-users/departments');
+        this.departments = data;
       } catch (error) {
-        console.error('Error fetching departments:', error);
+        console.error('获取部门时出错:', error);
+        // 添加回退数据
+        this.departments = [];  // 或提供示例部门
       }
     },
     exportToCSV() {

@@ -21,6 +21,7 @@
                 <el-button @click="resetZoom" icon="el-icon-refresh" type="primary"></el-button>
               </el-tooltip>
             </el-button-group>
+            <el-button @click="restoreFullGraph" type="primary">恢复完整图</el-button>
           </div>
         </div>
       </template>
@@ -58,8 +59,9 @@
 </template>
 
 <script>
+// import axios from 'axios'; // 移除 axios 导入
+import { get } from '../services/api'; // 导入我们的 API 服务
 import G6 from '@antv/g6';
-import axios from 'axios';
 
 export default {
   name: 'NetworkGraph',
@@ -67,6 +69,7 @@ export default {
     return {
       graph: null,
       graphData: null,
+      originalGraphData: null,
       colorScheme: 'default',
       colorSchemeOptions: [
         { value: 'default', label: '默认' },
@@ -76,9 +79,6 @@ export default {
       ],
       selectedNode: null,
       drawerVisible: false,
-      maxAnomalyScore: 0,
-      minNodeSize: 20,
-      maxNodeSize: 50,
       selectedNodeId: null,
       departmentColors: {
         'FieldService': '#FF6B6B',
@@ -96,10 +96,33 @@ export default {
         'ITAdmin': '#4ECDC4',
         'Technician': '#45B7D1'
       },
+      // 模拟数据，用于API调用失败时的回退
+      mockData: {
+        nodes: [
+          { id: '1', employeeName: '张三', email: 'zhangsan@example.com', role: 'ITAdmin', department: 'IT - SoftwareManagement', team: 'Dev', supervisor: '李四', anomalyScore: 0.85, isKnownAnomaly: true },
+          { id: '2', employeeName: '李四', email: 'lisi@example.com', role: 'ITAdmin', department: 'IT - SoftwareManagement', team: 'Dev', supervisor: '王五', anomalyScore: 0.15, isKnownAnomaly: false },
+          { id: '3', employeeName: '王五', email: 'wangwu@example.com', role: 'Technician', department: 'IT - Security', team: 'DevOps', supervisor: '', anomalyScore: 0.75, isKnownAnomaly: true },
+          { id: '4', employeeName: '赵六', email: 'zhaoliu@example.com', role: 'Salesman', department: 'Business - Sales', team: 'East', supervisor: '王五', anomalyScore: 0.35, isKnownAnomaly: false },
+          { id: '5', employeeName: '钱七', email: 'qianqi@example.com', role: 'Technician', department: 'IT - Engineering', team: 'QA', supervisor: '李四', anomalyScore: 0.55, isKnownAnomaly: false }
+        ],
+        edges: [
+          { source: '1', target: '2' },
+          { source: '2', target: '3' },
+          { source: '3', target: '4' },
+          { source: '2', target: '5' },
+          { source: '1', target: '5' }
+        ]
+      }
     };
   },
   methods: {
     createG6Graph() {
+      // 确保DOM已就绪
+      if (!this.$refs.graphContainer) {
+        console.error('graphContainer不存在，可能DOM尚未渲染完成');
+        return;
+      }
+
       this.registerCustomNode();
 
       const tooltip = new G6.Tooltip({
@@ -126,20 +149,17 @@ export default {
         width: this.$refs.graphContainer.clientWidth,
         height: 600,
         modes: {
-          default: ['drag-canvas', 'zoom-canvas', {
-            type: 'drag-node',
-            enableOptimize: true,  // Enable drag optimization
-          }, 'activate-relations']
+          default: ['drag-canvas', 'zoom-canvas', 'drag-node', 'activate-relations']
         },
         layout: {
-          type: 'forceAtlas2',
+          type: 'force',
           preventOverlap: true,
-          kr: 10,
-          gravity: 1
+          linkDistance: 200,
+          nodeStrength: -30,
         },
         defaultNode: {
           type: 'circle-with-menu',
-          size: this.minNodeSize,
+          size: 50,
           style: {
             fill: '#DEE9FF',
             stroke: '#5B8FF9',
@@ -147,8 +167,9 @@ export default {
           },
           labelCfg: {
             style: {
-              fill: '#333',
-              fontSize: 12
+              fill: '#000',
+              fontSize: 12,
+              fontWeight: 'bold',
             }
           }
         },
@@ -165,19 +186,31 @@ export default {
       this.graph.on('node:click', evt => {
         const node = evt.item;
         const model = node.getModel();
+
+        // 关闭之前节点的菜单
+        if (this.selectedNodeId && this.selectedNodeId !== model.id) {
+          const prevNode = this.graph.findById(this.selectedNodeId);
+          if (prevNode) {
+            this.graph.updateItem(prevNode, { showMenu: false });
+          }
+        }
+
         this.selectedNodeId = model.id;
-        this.graph.updateItem(node, {
-          showMenu: true,
-        });
+
+        // 更新当前节点的 showMenu 属性为 true
+        this.graph.updateItem(node, { showMenu: true });
+
         this.graph.paint();
       });
 
       this.graph.on('canvas:click', () => {
         if (this.selectedNodeId) {
           const node = this.graph.findById(this.selectedNodeId);
-          this.graph.updateItem(node, {
-            showMenu: false,
-          });
+          if (node) {
+            this.graph.updateItem(node, {
+              showMenu: false,
+            });
+          }
           this.selectedNodeId = null;
           this.graph.paint();
         }
@@ -185,18 +218,25 @@ export default {
       });
     },
     registerCustomNode() {
+      const self = this;
       G6.registerNode('circle-with-menu', {
-        draw: (cfg, group) => {
-          const { size, style, labelCfg } = cfg;
+        draw(cfg, group) {
+          const r = cfg.size / 2 || 25;
+
+          // 主圆形节点
           const mainCircle = group.addShape('circle', {
             attrs: {
               x: 0,
               y: 0,
-              r: size / 2,
-              ...style,
+              r,
+              fill: cfg.style.fill || '#DEE9FF',
+              stroke: cfg.style.stroke || '#5B8FF9',
+              lineWidth: 2,
             },
+            name: 'main-circle',
           });
 
+          // 标签
           if (cfg.label) {
             group.addShape('text', {
               attrs: {
@@ -205,61 +245,113 @@ export default {
                 y: 0,
                 textAlign: 'center',
                 textBaseline: 'middle',
-                ...labelCfg.style,
+                fill: '#000',
+                fontSize: 12,
+                fontWeight: 'bold',
               },
+              name: 'label',
             });
           }
 
-          if (cfg.showMenu) {
-            const menuItems = [
-              { text: '详情', action: 'details' },
-              { text: '编辑', action: 'edit' },
-              { text: '删除', action: 'delete' },
-            ];
-            const menuRadius = size / 2 + 20;
-            const itemAngle = (2 * Math.PI) / menuItems.length;
+          // 菜单项数据，使用文字替代缺失的图标
+          const menuItems = [
+            { label: '详情', action: 'details', bgColor: '#FFDDC1', iconText: 'i' },
+            { label: '编辑', action: 'edit', bgColor: '#FFC0CB', iconText: 'E' },
+            { label: '删除', action: 'delete', bgColor: '#FF9999', iconText: 'D' },
+            { label: '子图', action: 'displaySubgraph', bgColor: '#D3FFCE', iconText: 'S' },
+          ];
 
-            menuItems.forEach((item, index) => {
-              const angle = index * itemAngle - Math.PI / 2;
-              const x = Math.cos(angle) * menuRadius;
-              const y = Math.sin(angle) * menuRadius;
+          const menuRadius = r + 40;
+          const angleStep = (2 * Math.PI) / menuItems.length;
 
-              const menuItemGroup = group.addGroup();
-              menuItemGroup.addShape('circle', {
-                attrs: {
-                  x,
-                  y,
-                  r: 15,
-                  fill: '#fff',
-                  stroke: '#1890ff',
-                  cursor: 'pointer',
-                },
-              });
+          // 为每个菜单项创建背景圆和图标
+          menuItems.forEach((item, index) => {
+            const angle = index * angleStep - Math.PI / 2;
+            const x = Math.cos(angle) * menuRadius;
+            const y = Math.sin(angle) * menuRadius;
 
-              menuItemGroup.addShape('text', {
-                attrs: {
-                  x,
-                  y,
-                  text: item.text,
-                  textAlign: 'center',
-                  textBaseline: 'middle',
-                  fill: '#1890ff',
-                  fontSize: 12,
-                  cursor: 'pointer',
-                },
-              });
+            const menuGroup = group.addGroup({ name: 'menu-group' });
 
-              menuItemGroup.on('click', (e) => {
-                e.stopPropagation();
-                this.handleMenuItemClick(cfg, item.action);
-              });
+            // 背景圆，带有阴影和背景色
+            menuGroup.addShape('circle', {
+              attrs: {
+                x,
+                y,
+                r: 20,
+                fill: item.bgColor,
+                stroke: '#ccc',
+                cursor: 'pointer',
+                shadowColor: '#999',
+                shadowBlur: 10,
+                shadowOffsetX: 2,
+                shadowOffsetY: 2,
+              },
+              name: 'menu-circle',
             });
-          }
+
+            // 使用文字作为图标
+            menuGroup.addShape('text', {
+              attrs: {
+                x: x,
+                y: y,
+                text: item.iconText,
+                textAlign: 'center',
+                textBaseline: 'middle',
+                fontSize: 14,
+                fontWeight: 'bold',
+                fill: '#333',
+                cursor: 'pointer',
+              },
+              name: 'menu-icon',
+            });
+
+            // 文字说明
+            menuGroup.addShape('text', {
+              attrs: {
+                x,
+                y: y + 25,
+                text: item.label,
+                textAlign: 'center',
+                textBaseline: 'top',
+                fontSize: 12,
+                fill: '#333',
+              },
+              name: 'menu-label',
+            });
+
+            // 初始时根据 cfg.showMenu 决定是否显示菜单项
+            if (!cfg.showMenu) {
+              menuGroup.hide();
+            }
+
+            // 点击事件
+            menuGroup.on('click', (e) => {
+              e.stopPropagation();
+              self.handleMenuItemClick(cfg, item.action);
+            });
+          });
 
           return mainCircle;
         },
+        update(cfg, item) {
+          const group = item.getContainer();
+          const showMenu = cfg.showMenu;
+
+          const menuGroups = group.findAll(element => element.get('name') === 'menu-group');
+
+          if (showMenu) {
+            menuGroups.forEach(menuGroup => {
+              menuGroup.show();
+            });
+          } else {
+            menuGroups.forEach(menuGroup => {
+              menuGroup.hide();
+            });
+          }
+        },
       });
     },
+
     handleMenuItemClick(node, action) {
       switch (action) {
         case 'details':
@@ -270,6 +362,12 @@ export default {
           break;
         case 'delete':
           this.deleteNode(node);
+          break;
+        case 'displaySubgraph':
+          this.displaySubgraph(node);
+          break;
+        default:
+          console.warn('未知菜单操作:', action);
           break;
       }
     },
@@ -296,6 +394,67 @@ export default {
         this.$message.info('已取消删除');
       });
     },
+    displaySubgraph(node) {
+      // 保存原始图数据
+      if (!this.originalGraphData) {
+        this.originalGraphData = JSON.parse(JSON.stringify(this.graphData));
+      }
+
+      const visitedNodes = new Set();
+      const visitedEdges = [];
+
+      const nodeQueue = [node.id];
+      visitedNodes.add(node.id);
+
+      while (nodeQueue.length > 0) {
+        const currentNodeId = nodeQueue.shift();
+
+        // 获取与当前节点连接的边
+        const connectedEdges = this.originalGraphData.edges.filter(e => e.source === currentNodeId || e.target === currentNodeId);
+
+        connectedEdges.forEach(edge => {
+          const neighborNodeId = edge.source === currentNodeId ? edge.target : edge.source;
+
+          if (!visitedNodes.has(neighborNodeId)) {
+            visitedNodes.add(neighborNodeId);
+            nodeQueue.push(neighborNodeId);
+          }
+
+          visitedEdges.push(edge);
+        });
+      }
+
+      // 创建新的图数据，只包含访问过的节点和边
+      const subgraphNodes = this.originalGraphData.nodes.filter(n => visitedNodes.has(n.id));
+      const subgraphEdges = visitedEdges;
+
+      this.graphData = {
+        nodes: subgraphNodes,
+        edges: subgraphEdges
+      };
+
+      this.updateNodeColors();
+      this.updateGraph();
+
+      this.$message.success(`已显示节点 ${node.id} 的子图`);
+    },
+    restoreFullGraph() {
+      if (this.originalGraphData) {
+        // 创建一个深拷贝，但只拷贝节点和边，而不是整个 graphData 对象
+        this.graphData = {
+          nodes: this.originalGraphData.nodes.map(node => ({...node})),
+          edges: this.originalGraphData.edges.map(edge => ({...edge})),
+        };
+
+        // 重新绘制图表
+        this.updateNodeColors();
+        this.updateGraph();
+
+        this.$message.success('已恢复完整图');
+      } else {
+        this.$message.warning('没有可恢复的图数据');
+      }
+    },
     updateNodeColors() {
       if (!this.graphData) return;
 
@@ -304,9 +463,9 @@ export default {
       const colorMap = {
         default: () => '#DEE9FF',
         department: (node) => {
-          const departmentName = node.department.split(' - ')[1];
+          const departmentParts = node.department.split(' - ');
+          const departmentName = departmentParts.length > 1 ? departmentParts[1] : departmentParts[0];
           const color = departmentColors[departmentName];
-          console.log(`Node ${node.id}, Department: ${departmentName}, Color: ${color}`);
           return color || '#CCCCCC';
         },
         role: (node) => this.roleColors[node.role] || '#CCCCCC',
@@ -317,20 +476,30 @@ export default {
         const colorFunc = colorMap[this.colorScheme] || colorMap.default;
         const color = colorFunc(node);
 
-        // console.log(`Applying color ${color} to node ${node.id}`);
-
         node.style = {
           fill: color,
           stroke: this.darkenColor(color, 20)
         };
-        node.label = node.id;
+        node.label = node.employeeName; // 显示员工姓名作为标签
       });
 
       this.updateGraph();
     },
     updateGraph() {
+      if (!this.graph || !this.graphData) {
+        console.warn('graph或graphData未初始化');
+        return;
+      }
+
       this.graph.data(this.graphData);
       this.graph.render();
+      // 重新设置布局配置
+      this.graph.updateLayout({
+        type: 'force',
+        preventOverlap: true,
+        linkDistance: 200,
+        nodeStrength: -30,
+      });
     },
     darkenColor(color, percent) {
       const num = parseInt(color.replace("#", ""), 16),
@@ -338,57 +507,75 @@ export default {
           R = (num >> 16) - amt,
           G = (num >> 8 & 0x00FF) - amt,
           B = (num & 0x0000FF) - amt;
-      return "#" + (0x1000000 + (R < 255 ? R < 1 ? 0 : R : 255) * 0x10000 + (G < 255 ? G < 1 ? 0 : G : 255) * 0x100 + (B < 255 ? B < 1 ? 0 : B : 255)).toString(16).slice(1);
+      return "#" + (
+          0x1000000 +
+          (R < 255 ? (R < 0 ? 0 : R) : 255) * 0x10000 +
+          (G < 255 ? (G < 0 ? 0 : G) : 255) * 0x100 +
+          (B < 255 ? (B < 0 ? 0 : B) : 255)
+      ).toString(16).slice(1);
     },
     async loadGraphData() {
       try {
-        const response = await axios.get('/api/graph-data');
-        this.graphData = response.data;
+        // 使用我们的 API 服务
+        const data = await get('/api/anomalous-users/graph-data');
+        this.graphData = data;
 
-        this.graph.updateLayout({
-          type: 'forceAtlas2',
-          preventOverlap: true,
-          kr: 10,
-          gravity: 1
-        });
+        // 只保存原始节点和边的快照
+        this.originalGraphData = {
+          nodes: this.graphData.nodes.map(node => ({...node})),
+          edges: this.graphData.edges.map(edge => ({...edge})),
+        };
 
         this.updateNodeColors();
+        this.updateGraph();
       } catch (error) {
         console.error('加载图表数据时出错:', error);
-        this.$message.error('加载图表数据失败');
+        this.$message.warning('从API加载数据失败，将使用模拟数据');
+
+        // 使用模拟数据
+        this.graphData = this.mockData;
+        this.originalGraphData = {
+          nodes: this.mockData.nodes.map(node => ({...node})),
+          edges: this.mockData.edges.map(edge => ({...edge})),
+        };
+
+        this.updateNodeColors();
+        this.updateGraph();
       }
     },
     fitView() {
-      this.graph.fitView();
+      if (this.graph) this.graph.fitView();
     },
     resetZoom() {
-      this.graph.zoomTo(1);
-      this.graph.moveTo(0, 0);
+      if (this.graph) {
+        this.graph.zoomTo(1);
+        this.graph.moveTo(0, 0);
+      }
     },
     closeDrawer() {
       this.drawerVisible = false;
-    }
-  },
-  watch: {
-    colorScheme: {
-      handler() {
-        console.log('Color scheme changed to:', this.colorScheme);
-        this.updateNodeColors();
-      },
-      immediate: true
+    },
+    handleResize() {
+      if (this.graph && this.$refs.graphContainer) {
+        this.graph.changeSize(this.$refs.graphContainer.clientWidth, 600);
+      }
     }
   },
   mounted() {
-    this.createG6Graph();
-    this.loadGraphData();
+    // 使用nextTick确保DOM元素已经被渲染
     this.$nextTick(() => {
-      this.updateNodeColors();
+      this.createG6Graph();
+      this.loadGraphData();
+
+      window.addEventListener('resize', this.handleResize);
     });
-    window.addEventListener('resize', () => {
-      if (this.graph) {
-        this.graph.changeSize(this.$refs.graphContainer.clientWidth, 600);
-      }
-    });
+  },
+  beforeDestroy() {
+    // 清理事件监听器
+    window.removeEventListener('resize', this.handleResize);
+    if (this.graph) {
+      this.graph.destroy();
+    }
   }
 };
 </script>

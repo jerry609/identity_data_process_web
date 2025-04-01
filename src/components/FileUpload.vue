@@ -79,9 +79,7 @@
       <el-form-item>
         <el-button type="primary" icon="el-icon-plus" @click="addNewField">新增字段</el-button>
         <el-button icon="el-icon-plus" @click="addCommonFields">新增通用字段</el-button>
-        <!--        <el-button type="info" icon="el-icon-view" @click="previewTable">预览表格</el-button>-->
       </el-form-item>
-
 
       <el-divider></el-divider>
       <el-form-item>
@@ -131,6 +129,8 @@
         </el-table-column>
       </el-table>
     </el-dialog>
+
+    <!-- SQL Dialog -->
     <el-dialog title="生成的 SQL" :visible.sync="sqlDialogVisible" width="80%">
       <el-input
           type="textarea"
@@ -139,23 +139,13 @@
           :autosize="{ minRows: 10, maxRows: 30 }"
       ></el-input>
       <span slot="footer" class="dialog-footer">
-    <el-button @click="sqlDialogVisible = false">关闭</el-button>
-    <el-button type="primary" @click="copySqlResult">复制 SQL</el-button>
-    <el-button type="success" @click="executeSQL">执行 SQL</el-button>
-  </span>
+        <el-button @click="sqlDialogVisible = false">关闭</el-button>
+        <el-button type="primary" @click="copySqlResult">复制 SQL</el-button>
+        <el-button type="success" @click="executeSQL">执行 SQL</el-button>
+      </span>
     </el-dialog>
-<!--    <el-dialog title="选择要导入的字段" :visible.sync="fieldSelectionDialogVisible">-->
-<!--      <el-checkbox-group v-model="selectedFields">-->
-<!--        <el-checkbox v-for="field in csvColumns" :key="field" :label="field">-->
-<!--          {{ field }}-->
-<!--        </el-checkbox>-->
-<!--      </el-checkbox-group>-->
-<!--      <span slot="footer" class="dialog-footer">-->
-<!--    <el-button @click="fieldSelectionDialogVisible = false">取消</el-button>-->
-<!--    <el-button type="primary" @click="confirmFieldSelection">确定</el-button>-->
-<!--  </span>-->
-<!--    </el-dialog>-->
 
+    <!-- Field Selection Dialog -->
     <el-dialog title="选择要导入的字段" :visible.sync="fieldSelectionDialogVisible">
       <el-checkbox-group v-model="selectedFields">
         <el-checkbox v-for="field in csvColumns" :key="field" :label="field">
@@ -163,9 +153,9 @@
         </el-checkbox>
       </el-checkbox-group>
       <span slot="footer" class="dialog-footer">
-    <el-button @click="fieldSelectionDialogVisible = false">取消</el-button>
-    <el-button type="primary" @click="confirmFieldSelection">确定</el-button>
-  </span>
+        <el-button @click="fieldSelectionDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmFieldSelection">确定</el-button>
+      </span>
     </el-dialog>
   </el-card>
 </template>
@@ -214,18 +204,64 @@ export default {
       // 可以添加成功提示
       this.$message.success('数据上传成功');
     },
-
     async generateAndExecuteSQL() {
+      if (!this.validateNames()) return;
+
       try {
-        const createTableSQL = this.generateCreateTableSQL();
-        this.sqlResult = createTableSQL; // 将生成的 SQL 赋值给 sqlResult
-        this.sqlDialogVisible = true; // 显示对话框
-        this.tableCreated = false; // 重置表创建状态
+        // 检查表格是否存在
+        const tableExists = await this.checkTableExists();
+        if (tableExists) {
+          this.$message.info('表格已存在，直接导入数据');
+          this.tableCreated = true;
+          this.importFileData();
+        } else {
+          const createTableSQL = this.generateCreateTableSQL();
+          this.sqlResult = createTableSQL;
+          this.sqlDialogVisible = true;
+          this.tableCreated = false;
+        }
       } catch (error) {
-        console.error('SQL生成错误:', error);
-        this.$message.error('SQL生成失败: ' + error.message);
+        console.error('操作失败:', error);
+        this.$message.error('操作失败: ' + error.message);
       }
     },
+
+    // 新增：检查表格是否存在的方法
+    async checkTableExists() {
+      if (!this.validateNames()) return false;
+
+      try {
+        const response = await axios.post('/api/check-table-exists', {
+          tableName: this.formData.tableName,
+          databaseName: this.formData.databaseName
+        }, {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        return response.data.exists;
+      } catch (error) {
+        console.error('检查表格存在性时出错:', error);
+        this.$message.error('检查表格存在性失败: ' + (error.response?.data?.message || error.message));
+        return false;
+      }
+    },
+    validateNames() {
+      if (this.formData.databaseName.length > this.maxNameLength) {
+        this.$message.error(`数据库名不能超过 ${this.maxNameLength} 个字符`);
+        return false;
+      }
+      if (this.formData.tableName.length > this.maxNameLength) {
+        this.$message.error(`表名不能超过 ${this.maxNameLength} 个字符`);
+        return false;
+      }
+      if (!this.formData.databaseName) {
+        this.$message.error('请输入数据库名');
+        return false;
+      }
+      return true;
+    },
+
     async generateAndExecuteMockData() {
       if (!this.tableCreated) {
         this.$message.warning('请先创建表格');
@@ -234,16 +270,42 @@ export default {
       this.sqlResult = this.generateInsertSQL();
       this.sqlDialogVisible = true;
     },
-    async executeSql() {
+    async executeSQL() {
+      if (!this.validateNames()) return;
+
       try {
-        const response = await axios.post('/api/execute-sql', this.sqlResult);
-        this.$message.success(response.data);
+        // 分割SQL语句
+        const sqlStatements = this.sqlResult.split(';').filter(stmt => stmt.trim() !== '');
+
+        for (let stmt of sqlStatements) {
+          if (stmt.length > 1000) { // 设置一个合理的长度限制
+            throw new Error('SQL语句过长，请尝试分割成多个较小的语句');
+          }
+
+          const response = await axios.post('/api/execute-sql', {
+            sql: stmt.trim(),
+            databaseName: this.formData.databaseName
+          }, {
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+
+          if (response.data.error) {
+            throw new Error(response.data.error);
+          }
+        }
+
+        this.$message.success('SQL执行成功');
         this.tableCreated = true;
         this.sqlDialogVisible = false;
       } catch (error) {
-        this.$message.error('SQL执行失败: ' + (error.response?.data || error.message));
+        console.error('SQL执行错误:', error);
+        this.$message.error('SQL执行失败: ' + error.message);
       }
     },
+
+
 
     // 数据输入选择
     handleFileUpload(file) {
@@ -261,10 +323,8 @@ export default {
           this.csvColumns = Object.keys(this.csvData[0]);
           this.$message.success('文件导入成功');
           this.preprocessData();
-          // this.fieldSelectionDialogVisible = true; // 打开字段选择对话框
         },
         header: true
-
       });
     },
 
@@ -275,10 +335,10 @@ export default {
       this.convertDataTypes();
       this.normalizeFieldNames();
       this.updateFieldsFromCSV();
-      this.autoDetectTableName(); // 新增：自动检测表名
+      this.autoDetectTableName(); // 自动检测表名
     },
 
-    // 新增：自动检测表名方法
+    // 自动检测表名方法
     autoDetectTableName() {
       // 使用文件名作为表名的基础
       let tableName = this.fileName;
@@ -344,6 +404,7 @@ export default {
         comment: ''
       }));
     },
+
     // 表格设计优化
     optimizeTableDesign() {
       this.checkFieldNamingConventions();
@@ -383,7 +444,6 @@ export default {
         this.$message.info('已自动添加 id 字段作为主键');
       }
     },
-
 
     generateCreateTableSQL() {
       let sql = `CREATE TABLE IF NOT EXISTS \`${this.formData.tableName}\` (\n`;
@@ -536,20 +596,29 @@ export default {
       }
     },
 
-
     async importFileData() {
       if (this.csvData.length === 0) {
         this.$message.warning('请先导入CSV文件');
         return;
       }
 
-      if (!this.tableCreated) {
-        this.$message.warning('请先创建表格');
-        return;
-      }
+      try {
+        // 检查表格是否存在
+        const tableExists = await this.checkTableExists();
 
-      // 打开字段选择对话框
-      this.fieldSelectionDialogVisible = true;
+        if (!tableExists) {
+          // 如果表格不存在,先创建表格
+          const createTableSQL = this.generateCreateTableSQL();
+          await this.executeSQL(createTableSQL);
+          this.$message.success('表格创建成功');
+        }
+
+        // 表格已存在或刚刚创建,继续导入数据
+        this.fieldSelectionDialogVisible = true;
+      } catch (error) {
+        console.error('导入文件数据时出错:', error);
+        this.$message.error('导入文件数据失败: ' + error.message);
+      }
     },
 
     confirmFieldSelection() {
@@ -587,7 +656,12 @@ export default {
     async sendImportDataToBackend(importData) {
       console.log('Sending data to backend:', JSON.stringify(importData, null, 2));
       try {
-        const response = await axios.post('/api/import-file-data', importData);
+        const response = await axios.post('/api/import-file-data', importData, {
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          withCredentials: false // 禁用 Cookie
+        });
         console.log('Response from backend:', response.data);
         this.$message.success('文件数据导入成功');
         this.fieldSelectionDialogVisible = false;
@@ -625,25 +699,7 @@ export default {
       });
 
       return insertSQL;
-    },
-
-    async executeSQL() {
-      try {
-        const response = await axios.post('/api/execute-sql', this.sqlResult, {
-          headers: {
-            'Content-Type': 'text/plain'
-          }
-        });
-        this.$message.success(response.data);
-        this.tableCreated = true;
-        this.sqlDialogVisible = false;
-        this.fieldSelectionDialogVisible = false;
-      } catch (error) {
-        console.error('SQL执行错误:', error);
-        const errorMessage = error.response?.data || error.message || '未知错误';
-        this.$message.error('SQL执行失败: ' + errorMessage);
-      }
-    },
+    }
   }
 };
 </script>

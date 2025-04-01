@@ -13,6 +13,7 @@ import 'echarts/lib/chart/scatter';
 import 'echarts/lib/chart/pie';
 import 'echarts/lib/component/tooltip';
 import 'echarts/lib/component/legend';
+import axios from "axios";
 
 // 注册 ECharts 组件
 Vue.component('v-chart', ECharts);
@@ -25,3 +26,12 @@ new Vue({
   router,
   render: h => h(App)
 }).$mount('#app');
+
+// Add this to your main.js or where you configure Axios
+axios.defaults.headers.common = {
+  'Accept': 'application/json',
+  'Content-Type': 'application/json'
+};
+
+// Remove unnecessary default headers
+delete axios.defaults.headers.common['X-Requested-With'];
